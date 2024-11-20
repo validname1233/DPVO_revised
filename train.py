@@ -84,6 +84,33 @@ def train(args):
             images, poses, disps, intrinsics = [x.cuda().float() for x in data_blob]
             optimizer.zero_grad()
 
+            b,n,c,h,w=images.shape
+                        # 创建保存图片的文件夹
+            folder_path = 'output_images'
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+
+            """
+            # 遍历批量中的每个视频片段
+            for video_idx in range(b):
+                # 为每个视频片段创建一个单独的文件夹
+                video_folder_path = os.path.join(folder_path, f'video_{video_idx+1}')
+                if not os.path.exists(video_folder_path):
+                    os.makedirs(video_folder_path)
+                
+                # 遍历视频片段的每一帧
+                for frame_idx in range(n):
+                    # 将bnchw格式的图片转换为hwc格式
+                    images_cpu=images.detach()
+                    images_cpu=images_cpu.cpu()
+                    frame_tensor = images_cpu[video_idx, frame_idx]  # 选择一个帧
+                    frame_array = frame_tensor.permute(1,2,0).numpy()  # 转换为hwc格式
+
+                    
+                    # 保存图像
+                    cv2.imwrite(os.path.join(video_folder_path, f'frame_{frame_idx+1}.png'), frame_array)  # 按顺序命名图片
+            """
+
             # fix poses to gt for first 1k steps
             so = total_steps < 1000 and args.ckpt is None
 
@@ -184,7 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--clip', type=float, default=10.0)
     parser.add_argument('--n_frames', type=int, default=15)
     parser.add_argument('--pose_weight', type=float, default=10.0)
-    parser.add_argument('--flow_weight', type=float, default=0.1)  #原来为0.1 
+    parser.add_argument('--flow_weight', type=float, default=0.2)  #原来为0.1 
     args = parser.parse_args()
 
     train(args)
