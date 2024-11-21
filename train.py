@@ -82,6 +82,7 @@ def train(args):
     while 1:
         for data_blob in train_loader:
             images, poses, disps, intrinsics = [x.cuda().float() for x in data_blob]
+            #print("disps.shape:  ",disps.shape)  (1,n,h,w)
             optimizer.zero_grad()
 
             b,n,c,h,w=images.shape
@@ -203,6 +204,7 @@ def train(args):
 
 
 if __name__ == '__main__':
+    #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='bla', help='name your experiment')
     parser.add_argument('--ckpt', help='checkpoint to restore')

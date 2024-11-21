@@ -369,7 +369,7 @@ class LF_Net(nn.Module): #
             #print("eof_masks_crop:",eof_masks_crop.shape)
             nms_maps = self.non_max_suppression(max_heatmaps, 0.0, 5)
             nms_scores = max_heatmaps * nms_maps * eof_masks_crop
-            top_ks,kpts,_,_ = self.make_top_k_sparse_tensor(nms_scores, k=96) #这里调补丁数的
+            top_ks,kpts,_,_ = self.make_top_k_sparse_tensor(nms_scores, k=48) #这里调补丁数的
             top_ks = top_ks * nms_maps
             top_ks = top_ks.detach()  # 这里的 your_tensor 将不会计算梯度
             #print(kpts.shape)

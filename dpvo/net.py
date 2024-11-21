@@ -113,6 +113,8 @@ class Patchifier(nn.Module):
         fmap = self.fnet(images) / 4.0
         imap = self.inet(images) / 4.0
 
+        #print("imap.shape:  ",imap.shape)
+        
         b, n, c, h, w = fmap.shape
         P = self.patch_size
 
@@ -121,9 +123,9 @@ class Patchifier(nn.Module):
         extractor_kpts_f=torch_embeded.LF_Net(fmap).to(device="cuda")
         extractor_kpts_i=torch_embeded.LF_Net(imap).to(device="cuda")
         coords_i=extractor_kpts_i(imap)
-        coords_i=coords_i.float()
         coords_f=extractor_kpts_f(fmap)
-        coords_f=coords_f.float()
+        coords=torch.cat([coords_f,coords_i],dim=1).float()
+        #print("coords.shape:  ",coords.shape)  #(n,number of patches,2)
         
 
         """# bias patch selection towards regions with high gradient
@@ -149,25 +151,22 @@ class Patchifier(nn.Module):
         coords = torch.stack([x, y], dim=-1).float()"""
 
 
-        imap = altcorr.patchify(imap[0], coords_i, 0).view(b, -1, DIM, 1, 1)
-        gmap = altcorr.patchify(fmap[0], coords_f, P//2).view(b, -1, 128, P, P)
+        imap = altcorr.patchify(imap[0], coords, 0).view(b, -1, DIM, 1, 1)
+        #print("imap.shape after_patchify:  ", imap.shape)
+        gmap = altcorr.patchify(fmap[0], coords, P//2).view(b, -1, 128, P, P)
+        #print("gmap.shape after_patchify:  ", gmap.shape)
         
 
         if return_color:
-            extractor_kpts_c=torch_embeded.LF_Net(images).to(device="cuda")
-            coords_c=extractor_kpts_c(images)
-            coords_c=coords_c.float()
-            clr = altcorr.patchify(images[0], 4*(coords_c + 0.5), 0).view(b, -1, 3)
+            clr = altcorr.patchify(images[0], 4*(coords + 0.5), 0).view(b, -1, 3)
 
         if disps is None:
             disps = torch.ones(b, n, h, w, device="cuda")
 
         grid, _ = coords_grid_with_index(disps, device=fmap.device)
-        extractor_kpts_g=torch_embeded.LF_Net(grid).to(device="cuda")
-        coords_g=extractor_kpts_g(grid)
-        coords_g=coords_g.float()
         
-        patches = altcorr.patchify(grid[0], coords_g, P//2).view(b, -1, 3, P, P)
+        patches = altcorr.patchify(grid[0], coords, P//2).view(b, -1, 3, P, P)
+        #这个grid零只是个自己掏出来的张量，没有图像的信息的，提取补丁的位置和fmap同步应该就可以了
 
         index = torch.arange(n, device="cuda").view(n, 1)
         index = index.repeat(1, patches_per_image).reshape(-1)
@@ -221,6 +220,9 @@ class VONet(nn.Module):
         fmap, gmap, imap, patches, ix = self.patchify(images, disps=disps, patches_per_image=96)
         #print("patches.shape ",patches.shape)
         corr_fn = CorrBlock(fmap, gmap)
+        
+        #print("fmap.shape:  ",fmap.shape) (b,n,c,h,w)
+        #print("gmap.shape:  ",gmap.shape) (b,n*patches_number,c,3,3) 应该是已经补丁化了
 
         b, N, c, h, w = fmap.shape
         p = self.P
@@ -233,9 +235,13 @@ class VONet(nn.Module):
         #print("patches.shape after set_depth ",patches.shape)
 
         kk, jj = flatmeshgrid(torch.where(ix < 8)[0], torch.arange(0,8, device="cuda"), indexing='ij')
+        #print("kk_outside.shape:  ",kk.shape)
         ii = ix[kk]
+        
+        #print("imap.shape:  ",imap.shape)
 
         imap = imap.view(b, -1, DIM)
+        #print("imap.shape_after_view:  ",imap.shape)
         net = torch.zeros(b, len(kk), DIM, device="cuda", dtype=torch.float)
         
         Gs = SE3.IdentityLike(poses)
@@ -250,18 +256,33 @@ class VONet(nn.Module):
             Gs = Gs.detach()
             patches = patches.detach()
 
+            #print("outside_ii.shape:  ",ii.shape)
+
             n = ii.max() + 1
+            #print("n:  ",n)
             if len(traj) >= 8 and n < images.shape[1]:
                 if not structure_only: Gs.data[:,n] = Gs.data[:,n-1]
                 kk1, jj1 = flatmeshgrid(torch.where(ix  < n)[0], torch.arange(n, n+1, device="cuda"), indexing='ij')
                 kk2, jj2 = flatmeshgrid(torch.where(ix == n)[0], torch.arange(0, n+1, device="cuda"), indexing='ij')
 
-                ii = torch.cat([ix[kk1], ix[kk2], ii])
+                ii = torch.cat([ix[kk1], ix[kk2], ii])  #看一下这些变量的维度
                 jj = torch.cat([jj1, jj2, jj])
                 kk = torch.cat([kk1, kk2, kk])
 
                 net1 = torch.zeros(b, len(kk1) + len(kk2), DIM, device="cuda")
                 net = torch.cat([net1, net], dim=1)
+
+                """
+                print("ii.shape:  ",ii.shape)
+                print("jj.shape:  ",jj.shape)
+                print("kk.shape:  ",kk.shape)
+                print("ix[kk1].shape:  ",ix[kk1].shape)
+                print("ix[kk2].shape:  ",ix[kk2].shape)
+                print("jj1.shape:  ",jj1.shape)
+                print("jj2.shape:  ",jj2.shape)
+                print("kk1.shape:  ",kk1.shape)
+                print("kk2.shape:  ",kk2.shape)
+                """
 
                 if np.random.rand() < 0.1:
                     k = (ii != (n - 4)) & (jj != (n - 4))
@@ -278,6 +299,12 @@ class VONet(nn.Module):
             coords1 = coords.permute(0, 1, 4, 2, 3).contiguous()
 
             corr = corr_fn(kk, jj, coords1)
+
+            #print("corr.shape:  ",corr.shape)
+            #print("imap.shape:  ",imap.shape)
+            #print("kk.shape:  ",kk.shape)
+            #print("imap[:,kk].shape:  ",imap[:,kk].shape)
+
             net, (delta, weight, _) = self.update(net, imap[:,kk], corr, None, ii, jj, kk)
 
             lmbda = 1e-4
