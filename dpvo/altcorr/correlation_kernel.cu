@@ -290,8 +290,6 @@ std::vector<torch::Tensor> patchify_cuda_forward(
 {
   const int B = coords.size(0);
   const int M = coords.size(1);
-  cout<<"M:   "<<M<<endl;
-  cout<<"coords.size(2):  "<<endl;
   const int C = net.size(1);
   const int D = 2 * radius + 2;
 
@@ -299,8 +297,8 @@ std::vector<torch::Tensor> patchify_cuda_forward(
   auto patches = torch::zeros({B, M, C, D, D}, opts);
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(net.type(), "patchify_forward_kernel", ([&] {
-        net.packed_accessor32<scalar_t,4,torch::RestrictPtrTraits>(),
       patchify_forward_kernel<scalar_t><<<BLOCKS(B * M * D * D), THREADS>>>(radius,
+        net.packed_accessor32<scalar_t,4,torch::RestrictPtrTraits>(),
         coords.packed_accessor32<float,3,torch::RestrictPtrTraits>(),
         patches.packed_accessor32<scalar_t,5,torch::RestrictPtrTraits>());
   }));
