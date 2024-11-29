@@ -85,13 +85,13 @@ def train(args):
             #print("disps.shape:  ",disps.shape)  (1,n,h,w)
             optimizer.zero_grad()
 
+            """
             b,n,c,h,w=images.shape
-                        # 创建保存图片的文件夹
+            # 创建保存图片的文件夹
             folder_path = 'output_images'
             if not os.path.exists(folder_path):
                 os.makedirs(folder_path)
 
-            """
             # 遍历批量中的每个视频片段
             for video_idx in range(b):
                 # 为每个视频片段创建一个单独的文件夹
@@ -114,9 +114,8 @@ def train(args):
 
             # fix poses to gt for first 1k steps
             so = total_steps < 1000 and args.ckpt is None
-
             poses = SE3(poses).inv()
-            traj = net(images, poses, disps, intrinsics, M=1024, STEPS=18, structure_only=so)
+            traj = net(images, poses, disps, intrinsics, M=1024, STEPS=18, structure_only=so, total_steps=total_steps)
 
             loss = 0.0
             for i, (v, x, y, P1, P2, kl) in enumerate(traj):
@@ -213,7 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--clip', type=float, default=10.0)
     parser.add_argument('--n_frames', type=int, default=15)
     parser.add_argument('--pose_weight', type=float, default=10.0)
-    parser.add_argument('--flow_weight', type=float, default=0.2)  #原来为0.1 
+    parser.add_argument('--flow_weight', type=float, default=0.1)  #原来为0.1 
     args = parser.parse_args()
 
     train(args)

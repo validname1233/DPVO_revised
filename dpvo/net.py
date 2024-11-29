@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
+import cv2
+import os
 
 import torch_scatter
 from torch_scatter import scatter_sum
@@ -108,12 +110,13 @@ class Patchifier(nn.Module):
         g = F.avg_pool2d(g, 4, 4)
         return g
 
-    def forward(self, images, patches_per_image=80, disps=None, centroid_sel_strat='RANDOM', return_color=False):
+    def forward(self, images, patches_per_image=80, disps=None, centroid_sel_strat='RANDOM', return_color=False, total_steps=1, drawing=False):
         """ extract patches from input images """
         fmap = self.fnet(images) / 4.0
         imap = self.inet(images) / 4.0
 
-        #print("imap.shape:  ",imap.shape)
+        #print("imap.shape:  ",imap.shape)  (b,n,384,120,160)
+        #print("fmap.shape:  ",fmap.shape)  (b,n,128,120,160)
         
         b, n, c, h, w = fmap.shape
         P = self.patch_size
@@ -127,6 +130,7 @@ class Patchifier(nn.Module):
         coords=torch.cat([coords_f,coords_i],dim=1).float()
         #print("coords.shape:  ",coords.shape)  #(n,number of patches,2)
         
+        #print(total_steps)
 
         """# bias patch selection towards regions with high gradient
         if centroid_sel_strat == 'GRADIENT_BIAS':
@@ -176,6 +180,9 @@ class Patchifier(nn.Module):
         
         if return_color:
             return fmap, gmap, imap, patches, index, clr
+        
+        if drawing==True:
+            return fmap, gmap, imap, patches, index, coords
 
         
 
@@ -210,15 +217,42 @@ class VONet(nn.Module):
 
 
     @autocast(enabled=False)
-    def forward(self, images, poses, disps, intrinsics, M=1024, STEPS=12, P=1, structure_only=False, rescale=False):
+    def forward(self, images, poses, disps, intrinsics, M=1024, STEPS=12, P=1, structure_only=False, rescale=False, total_steps=1):
         """ Estimates SE3 or Sim3 between pair of frames """
+        images_cp=images.cpu()
 
         images = 2 * (images / 255.0) - 0.5
         intrinsics = intrinsics / 4.0
         disps = disps[:, :, 1::4, 1::4].float()
 
-        fmap, gmap, imap, patches, ix = self.patchify(images, disps=disps, patches_per_image=96)
-        #print("patches.shape ",patches.shape)
+        fmap, gmap, imap, patches, ix, coords_draw = self.patchify(images, disps=disps, patches_per_image=96, drawing=True)
+        
+        #把每一帧的关键点选取都画出来
+        if(total_steps % 10000==0):
+            folder_name = f'step_{total_steps}'
+            if not os.path.exists(folder_name):
+                os.makedirs(folder_name)
+            
+            # 对于每一帧，在图像上绘制numbers个点
+            for i in range(fmap.shape[1]):
+                x_coords, y_coords = coords_draw[i][..., 0], coords_draw[i][..., 1]  # 解包x和y坐标
+                frame = images_cp[0, i]  # 获取当前帧
+                frame_cpu=frame.permute(1, 2, 0)
+                #frame_cpu=frame_cpu.cpu()
+                frame_cpu=frame_cpu.numpy()
+                #print(frame_cpu.shape)
+                mat = cv2.UMat(frame_cpu)
+                for x, y in zip(x_coords, y_coords):
+                    # 使用OpenCV绘制红色圆点
+                    cv2.circle(mat, (int(x)*4, int(y)*4), radius=1, color=(0, 0, 255), thickness=-1)
+
+                
+                # 保存图像
+                file_name = os.path.join(folder_name, f'frame_{i}.png')
+                cv2.imwrite(file_name, mat)
+
+            print(f'Images saved in folder: {folder_name}')
+
         corr_fn = CorrBlock(fmap, gmap)
         
         #print("fmap.shape:  ",fmap.shape) (b,n,c,h,w)
